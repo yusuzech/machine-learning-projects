@@ -46,6 +46,8 @@ download_google_img <- function(keyword_search,image_num = 50,scroll_times = 1,
         }
     }
     #optional ends-----------------------
+    #after scrolling, wait a certain time for pictures to load
+    Sys.sleep(scroll_times*5)
     #get picture source urls
     img_href <- remDr %>% getPageSource() %>% html_nodes(css_img_src) %>% html_attr("src")
     #remove NAs in img_href
@@ -64,13 +66,18 @@ download_google_img <- function(keyword_search,image_num = 50,scroll_times = 1,
             cropped_img <- image_trim(image_read(temp_img))
             #save image in tmp_img file
             image_write(cropped_img,path = str_c("tmp_img/",keyword_search,"_",i,".png"),format = "png")
-            Sys.sleep(round(runif(1,min = 1, max = 3)))
+            message("process:",i,"/",r_img_num)
+            Sys.sleep(round(runif(1,min = 2, max = 4)))
         },
         error = function(x){
             x <- i
             missed_imgs <<- append(missed_imgs,x)
-            message("image ",x," missing")
+            message(keyword_search," image ",x," missing")
+            Sys.sleep(10)
+            remDr <- remoteDr(browserName = "chrome",port = 4445L)
+            message("server restarted")
         })
+        
     }
     #currently have some bugs
     # #try to re-download missed pictures

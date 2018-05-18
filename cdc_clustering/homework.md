@@ -272,7 +272,7 @@ sspct <- str_c("between_SS / total_SS = ",round(100*(kmeans_cluster$betweenss/km
 
 The clusters have: between\_SS / total\_SS = 19.76%
 
-The size of each clusters are: 4945, 7166, 5391, 5230
+The size of each clusters are: 5243, 7166, 4931, 5392
 
 3.How do the health characteristics differ between these clusters?
 ==================================================================
@@ -298,10 +298,15 @@ encode_drop_indexed_grouped %>%
     group_by(group_num) %>%
     select(one_of(c("SEX",health_stats))) %>%
     summarise_all(~round(mean(.x),2)) %>%
-    DT::datatable()
+    knitr::kable()
 ```
 
-![](homework_files/figure-markdown_github/unnamed-chunk-8-1.png)
+|  group\_num|   SEX|  GENHLTH|  DIFFWALK|  DECIDE|  DIFFALON|  DIFFDRES|  QLACTLM2|
+|-----------:|-----:|--------:|---------:|-------:|---------:|---------:|---------:|
+|           1|  0.16|     2.57|      0.12|    0.06|      0.06|      0.01|      0.11|
+|           2|  0.48|     2.43|      0.04|    0.04|      0.02|      0.01|      0.12|
+|           3|  0.49|     2.38|      0.07|    0.05|      0.02|      0.01|      0.13|
+|           4|  0.30|     3.62|      0.86|    0.20|      0.30|      0.17|      0.90|
 
 Through the observation, we can find that:
 
@@ -332,10 +337,15 @@ encode_drop_indexed_grouped %>%
     group_by(group_num) %>%
     select(one_of(c("SEX",behavior_stats))) %>%
     summarise_all(~round(mean(.x),2)) %>%
-    DT::datatable()
+    knitr::kable()
 ```
 
-![](homework_files/figure-markdown_github/unnamed-chunk-10-1.png)
+|  group\_num|   SEX|  EXERANY2|  \_SMOKER3|  \_BMI5CAT|
+|-----------:|-----:|---------:|----------:|----------:|
+|           1|  0.16|      0.74|       3.49|       2.73|
+|           2|  0.48|      0.82|       3.43|       2.87|
+|           3|  0.49|      0.77|       3.37|       2.85|
+|           4|  0.30|      0.41|       3.31|       3.14|
 
 Through the observation, we can find that:
 

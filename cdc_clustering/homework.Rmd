@@ -221,7 +221,7 @@ encode_drop_indexed_grouped %>%
     group_by(group_num) %>%
     select(one_of(c("SEX",health_stats))) %>%
     summarise_all(~round(mean(.x),2)) %>%
-    DT::datatable()
+    knitr::kable()
 ```
 
 
@@ -255,7 +255,7 @@ encode_drop_indexed_grouped %>%
     group_by(group_num) %>%
     select(one_of(c("SEX",behavior_stats))) %>%
     summarise_all(~round(mean(.x),2)) %>%
-    DT::datatable()
+    knitr::kable()
 ```
 
 

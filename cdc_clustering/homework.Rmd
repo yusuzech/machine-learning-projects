@@ -1,0 +1,274 @@
+---
+title: "CDC Cluster"
+author: "Yifu Yan"
+date: "2018-5-18"
+output: github_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+    echo = TRUE,
+    message = FALSE,
+    warning = FALSE
+)
+library(tidyverse)
+library(lubridate)
+library(stringr)
+dataset <- read_csv("cluster_data_for_students.csv")
+```
+
+## Prepare data for machine learning
+
+### Cleaning
+
+```{r cleaning}
+dropped <- dataset %>%
+    select(-1) %>% #delete column X1
+    mutate(year_month_day = ymd(str_c(str_extract(IYEAR,"[0-9]+"),
+                           str_extract(IMONTH,"[0-9]+"),
+                           str_extract(IDAY,"[0-9]+"),
+                           sep = "-"))) %>% # change month day year into a year-month-day format 
+    mutate(year=year(year_month_day),
+           month = month(year_month_day)) %>% # create year and month as number
+    select(-IDAY,-IMONTH,-IYEAR) %>% #drop IDAY,IMONTH,IYEAR 
+    mutate(days = as.integer(year_month_day)-as.integer(min(year_month_day))) %>%
+    select(-year_month_day)# count days to see trend in time easier
+```
+
+### Change encoding
+
+```{r}
+#change encoding----------
+to_categorical <- "(_STATE)|(MARITAL)|(_RACEGR3)|(MSCODE)|(EMPLOY)" # use regular expression later
+missing_in_dict <- "(_RACEGR2)|(EMPLOY1)|(BPHIGH4)|(TOLDHI2)"
+
+#function to convert numeric to character
+dict_to_cate <- function(x){
+    as.character(x)
+}
+#for those columns which only have value 1,2,7,9 and NA, convert 1 to TRUE, 2 to FALSE and others to NA ----------
+dict_to_logical <- function(x){
+    my_dict <- c(T,F) %>%
+        setNames(c(1,2))
+    if(all(unique(x) %in% c(1,2,7,9,NA))){
+        return(my_dict[as.character(x)])
+    } else {
+        return(x)
+    }
+}
+
+encoded <- dropped %>% 
+    select(-matches(missing_in_dict)) %>% #drop some missing columns in data dictionary
+    mutate_at(vars(matches(to_categorical)),~as.character(.x)) %>% # convert some columns to categorical
+    mutate_all(dict_to_logical) %>%
+    select(-DIABETE3) # column has unique values 1,2,3,4,7,9 where it is only supposed to have 1,2,4,9, drop this column
+```
+
+### Get complete observations and one-hot encoding
+
+```{r}
+#get all complete observations ------------
+#drop columns that have too many missing values
+NA_pct <- map_dbl(encoded,~sum(is.na(.x))/length(.x)) %>% sort(decreasing = T)
+drop_cols <- names(NA_pct[NA_pct>0.25])
+encode_drop <- encoded %>%
+    select(-one_of(drop_cols))
+
+#add index encode_drop-------------------
+encode_drop_indexed <- encode_drop %>%
+    mutate(index = row_number())
+
+encode_drop_indexed <- encode_drop_indexed[complete.cases(encode_drop_indexed),]
+
+#convert all logical to 1 or 0
+final <- encode_drop_indexed %>%
+    mutate_if(~is.logical(.x),~as.integer(.x))
+
+
+#one hot encoding------------
+one_hot <- model.matrix(index ~ .,data=final)[,-1] %>% as.data.frame()
+my_dim <- dim(one_hot)
+
+```
+
+number of complete observations are: `r my_dim[1]`, after one-hont encoding, there are `r my_dim[2]` variables.
+
+# 1.Is there a higher prevalence of chronic conditions in certain states?
+
+```{r conditions ranked in each state}
+chronic_conditions <- str_split("CVDINFR4
+CVDCRHD4
+CVDSTRK3
+ASTHMA3
+CHCSCNCR
+CHCOCNCR
+CHCCOPD1
+HAVARTH3
+ADDEPEV2
+CHCKIDNY",pattern="\\\n")[[1]]
+
+condition_rank_list <- list()
+graph_list_1 <- list()
+for(condition in chronic_conditions){
+    current_list <- encode_drop %>%
+        group_by(`_STATE`) %>%
+        summarise(mean_condition = mean(UQ(rlang::sym(condition)),na.rm = T)) %>%
+        arrange(desc(mean_condition)) %>% list()
+    names(current_list) <- condition
+    condition_rank_list <- append(condition_rank_list,current_list)
+    current_graph <- current_list[[1]] %>%
+        top_n(10) %>%
+        ggplot(aes(x = fct_reorder(`_STATE`,mean_condition),y=mean_condition)) +
+        geom_col(fill="skyblue3") +
+        coord_flip() +
+        labs(x = "_STATE",title = condition) 
+        
+    graph_list_1 <- append(graph_list_1,list(current_graph))
+}
+```
+
+Following graphs are various chronic conditions ranked in each states. **The top ones have a higher prevalence.**
+
+```{r echo=FALSE, fig.height=3, fig.width=3, message=FALSE, warning=FALSE}
+graph_list_1
+```
+
+
+
+# 2.Are there there natural clusters of people in this data?
+
+## PCA
+
+```{r}
+#PCA---------------------
+#rule of thumb, we have 23000 observations, so we use at most 23 variables or it may not converge
+normalize_column <- function(x){
+    (x-min(x))/(max(x)-min(x))
+}
+scaled <- map_df(one_hot,normalize_column) #normalize data
+
+pca = princomp(scaled)
+out <- capture.output(summary(pca))
+out_vec <- str_split(str_c(out[seq(5,length(out),by = 4)],collapse = " "),pattern = " ") 
+pca_pct <- out_vec[[1]] %>% as.numeric() %>% na.omit()
+pca_table <- tibble(components = seq_along(pca_pct),y=pca_pct)
+pca_table %>% 
+    ggplot(aes(x = components,y=y)) +
+    geom_line() +
+    geom_point(color="skyblue3") +
+    labs(y="% of Variance explained")
+```
+
+The graph above shows accumulative expalined percentage of variance by each component, we can observe that the first 13 components explained more than 50% variance. So we are going to use them to find important variables.
+
+### Select important variables based on first 13 components
+
+```{r}
+#Fisrt 13 components explained 52% variance, let's see what makes each components
+abs_component_df <- as.data.frame(abs(unclass(pca$loadings)))
+
+#see most influential variables in the first 13 components an calculate their weight
+mydf <- abs_component_df[,1:13]
+#Sum weight of each variable in first 13 components
+important_vars <- apply(map2_df(mydf,13:1,~.x*.y),MARGIN = 1,sum) %>%
+    setNames(row.names(abs_component_df)) %>% sort(decreasing = T)
+print("importance of all variables:")
+important_vars
+#Use the first 20 variables
+vars_in_cluster <- names(important_vars)[1:20]
+```
+
+After PCA, I get the conclusion that the most important 20 variables are(ranked by importantce): `r vars_in_cluster`
+
+## kmeans cluster
+
+After testing, I found taht while there are four clusters, the clustering is optimal.
+
+
+```{r}
+model_data <- scaled %>%
+    select(one_of(vars_in_cluster))
+
+kmeans_cluster <- kmeans(model_data,centers = 4,nstart = 25)
+sspct <- str_c("between_SS / total_SS = ",round(100*(kmeans_cluster$betweenss/kmeans_cluster$totss),2),"%")
+```
+
+The clusters have: `r sspct`
+
+The size of each clusters are: `r kmeans_cluster$size`
+
+# 3.How do the health characteristics differ between these clusters?
+
+```{r}
+encode_drop_indexed_grouped <- encode_drop_indexed %>%
+    mutate(group_num = kmeans_cluster$cluster)
+health_stats <- str_split("GENHLTH
+PHYHLTH
+MENHLTH
+POORHLTH
+DIFFWALK
+DECIDE
+DIFFALON
+DIFFDRES
+QLACTLM2",pattern="\\\n")[[1]]
+
+```
+
+Health characteristics in group 1 to 4(SEX=1:male):
+
+```{r}
+encode_drop_indexed_grouped %>%
+    group_by(group_num) %>%
+    select(one_of(c("SEX",health_stats))) %>%
+    summarise_all(~round(mean(.x),2)) %>%
+    DT::datatable()
+```
+
+
+Through the observation, we can find that:
+
+In group 1: They are likely to be female, who think their health is fair. They have serious mental and physical issues. They also have difficulty in awlking and bathing. 
+
+In group 2: They are mostly female, they think they have good health condition. Some of them have difficulty in walking and doing errands along.
+
+Group 3 and 4 are similar. Both of the groups think they have good health condition.
+
+# 4.How do the behavior characteristics differ between these clusters?
+
+```{r}
+behavior_stats <- str_split("_RFDRHV5
+EXERANY2
+AVEDRNK2
+DRNK3GE5
+_SMOKER3
+_BMI5CAT
+_FRUTSUM
+_VEGESUM",pattern="\\\n")[[1]]
+
+```
+
+
+Behavior characteristics in group 1 to 4(SEX=1:male):
+
+```{r}
+encode_drop_indexed_grouped %>%
+    group_by(group_num) %>%
+    select(one_of(c("SEX",behavior_stats))) %>%
+    summarise_all(~round(mean(.x),2)) %>%
+    DT::datatable()
+```
+
+
+Through the observation, we can find that:
+
+In group one: They seldom do exercises and are very likely to be overweight.
+
+Group 2,3 and 4 are similar in behavior characteristics.
+
+# Conclusion
+
+This kmeans cluster successfully identifies group 1 as the most unhealthy groups.
+
+Group 2 have some difficulty in walking and doing errands alng but identify themselves as having good health.
+
+Group 3 and 4 don't have distinct health and behavior characteristics.

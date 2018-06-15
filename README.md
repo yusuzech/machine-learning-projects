@@ -10,4 +10,4 @@
   •	Use SVM and K-means algorithm to create clusters with iris dataset.    
   
 1. [**amazon_text_mining**](https://github.com/yusuzech/machine-learning-projects/blob/master/amazon_text_mining/Presentation.pdf)  
-  •	Using Amazon’s book review data, web-scrape books’ price, create word clouds, network graph and perform sentiment analysis using Google’s NLP API.        
+  •	Using Amazon’s book review data, web-scrape books’ price, create word clouds, network graph and perform sentiment analysis using Google’s Natural Language API.        
